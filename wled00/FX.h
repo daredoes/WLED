@@ -30,9 +30,8 @@
 #include "NpbWrapper.h"
 #include "const.h"
 
-
-
 #define FASTLED_INTERNAL //remove annoying pragma messages
+#define USE_GET_MILLISECOND_TIMER
 #include "FastLED.h"
 
 #define DEFAULT_BRIGHTNESS (uint8_t)127
@@ -90,21 +89,24 @@
 
 // options
 // bit    7: segment is in transition mode
-// bits 3-6: TBD
+// bits 4-6: TBD
+// bit    3: mirror effect within segment
 // bit    2: segment is on
 // bit    1: reverse segment
 // bit    0: segment is selected
 #define NO_OPTIONS   (uint8_t)0x00
 #define TRANSITIONAL (uint8_t)0x80
+#define MIRROR       (uint8_t)0x08
 #define SEGMENT_ON   (uint8_t)0x04
 #define REVERSE      (uint8_t)0x02
 #define SELECTED     (uint8_t)0x01
 #define IS_TRANSITIONAL ((SEGMENT.options & TRANSITIONAL) == TRANSITIONAL)
+#define IS_MIRROR       ((SEGMENT.options & MIRROR      ) == MIRROR      )
 #define IS_SEGMENT_ON   ((SEGMENT.options & SEGMENT_ON  ) == SEGMENT_ON  )
 #define IS_REVERSE      ((SEGMENT.options & REVERSE     ) == REVERSE     )
 #define IS_SELECTED     ((SEGMENT.options & SELECTED    ) == SELECTED    )
 
-#define MODE_COUNT                      140
+#define MODE_COUNT                     142
 
 #define FX_MODE_STATIC                   0
 #define FX_MODE_BLINK                    1
@@ -210,43 +212,44 @@
 #define FX_MODE_PACIFICA               101
 #define FX_MODE_CANDLE_MULTI           102
 #define FX_MODE_SOLID_GLITTER          103
-#define FX_MODE_PIXELS                 104
-#define FX_MODE_PIXELWAVE              105
-#define FX_MODE_JUGGLES                106
-#define FX_MODE_MATRIPIX               107
-#define FX_MODE_GRAVIMETER             108
-#define FX_MODE_PLASMOID               109
-#define FX_MODE_PUDDLES                110
-#define FX_MODE_MIDNOISE               111
-#define FX_MODE_NOISEMETER             112
-#define FX_MODE_FREQWAVE               113
-#define FX_MODE_FREQMATRIX             114
-#define FX_MODE_SPECTRAL               115
-#define FX_MODE_WATERFALL              116
-#define FX_MODE_FREQPIXEL              117
-#define FX_MODE_BINMAP                 118
-#define FX_MODE_NOISEPEAK              119
-#define FX_MODE_NOISEFIRE              120
-#define FX_MODE_PUDDLEPEAK             121
-#define FX_MODE_NOISEMOVE              122
-#define FX_MODE_PHASED                 123
-#define FX_MODE_NOISEPAL               124
-#define FX_MODE_SINEWAVE               125
-#define FX_MODE_PHASEDNOISE            126
-#define FX_MODE_2DPLASMA               127
-#define FX_MODE_2D02                   128
-#define FX_MODE_2D03                   129
-#define FX_MODE_A0                     130
-#define FX_MODE_A1                     131
-#define FX_MODE_A2                     132
-#define FX_MODE_A3                     133
-#define FX_MODE_A4                     134
-#define FX_MODE_A5                     135
-#define FX_MODE_A6                     136
-#define FX_MODE_A7                     137
-#define FX_MODE_A8                     138
-#define FX_MODE_A9                     139
-
+#define FX_MODE_SUNRISE                104
+#define FX_MODE_FLOW                   105
+#define FX_MODE_CHUNCHUN               106
+#define FX_MODE_DANCING_SHADOWS        107
+#define FX_MODE_PHASED                 108
+#define FX_MODE_PHASEDNOISE            109
+#define FX_MODE_TWINKLEUP              110
+#define FX_MODE_NOISEPAL               111
+#define FX_MODE_SINEWAVE               112
+#define FX_MODE_PIXELS                 113
+#define FX_MODE_PIXELWAVE              114
+#define FX_MODE_JUGGLES                115
+#define FX_MODE_MATRIPIX               116
+#define FX_MODE_GRAVIMETER             117
+#define FX_MODE_PLASMOID               118
+#define FX_MODE_PUDDLES                119
+#define FX_MODE_MIDNOISE               120
+#define FX_MODE_NOISEMETER             121
+#define FX_MODE_FREQWAVE               122
+#define FX_MODE_FREQMATRIX             123
+#define FX_MODE_SPECTRAL               124
+#define FX_MODE_WATERFALL              125
+#define FX_MODE_FREQPIXEL              126
+#define FX_MODE_BINMAP                 127
+#define FX_MODE_NOISEPEAK              128
+#define FX_MODE_NOISEFIRE              129
+#define FX_MODE_PUDDLEPEAK             130
+#define FX_MODE_NOISEMOVE              131
+#define FX_MODE_2DPLASMA               132
+#define FX_MODE_PERLINMOVE             133
+#define FX_MODE_RIPPLEPEAK             134
+#define FX_MODE_2DFIRENOISE            135
+#define FX_MODE_2DSQUAREDSWIRL         136
+#define FX_MODE_2DFIRE2012             137
+#define FX_MODE_2DDNA                  138
+#define FX_MODE_2DMATRIX               139
+#define FX_MODE_2DMEATBALLS            140
+#define FX_FFT_TEST                    141
 
 
 // Sound reactive external variables
@@ -256,7 +259,6 @@ extern bool samplePeak;
 extern uint8_t myVals[32];
 extern int sampleAgc;
 extern uint8_t squelch;
-
 
 class WS2812FX {
   typedef uint16_t (WS2812FX::*mode_ptr)(void);
@@ -312,7 +314,10 @@ class WS2812FX {
       uint16_t virtualLength()
       {
         uint16_t groupLen = groupLength();
-        return (length() + groupLen -1) / groupLen;
+        uint16_t vLength = (length() + groupLen - 1) / groupLen;
+        if (options & MIRROR)
+          vLength = (vLength + 1) /2;  // divide by 2 if mirror, leave at least a single LED
+        return vLength;
       }
     } segment;
 
@@ -346,7 +351,7 @@ class WS2812FX {
         uint16_t _dataLen = 0;
     } segment_runtime;
 
-    WS2812FX() {
+     WS2812FX() {
       //assign each member of the _mode[] array to its respective function reference
       _mode[FX_MODE_STATIC]                  = &WS2812FX::mode_static;
       _mode[FX_MODE_BLINK]                   = &WS2812FX::mode_blink;
@@ -452,6 +457,15 @@ class WS2812FX {
       _mode[FX_MODE_PACIFICA]                = &WS2812FX::mode_pacifica;
       _mode[FX_MODE_CANDLE_MULTI]            = &WS2812FX::mode_candle_multi;
       _mode[FX_MODE_SOLID_GLITTER]           = &WS2812FX::mode_solid_glitter;
+      _mode[FX_MODE_SUNRISE]                 = &WS2812FX::mode_sunrise;
+      _mode[FX_MODE_FLOW]                    = &WS2812FX::mode_flow;
+      _mode[FX_MODE_CHUNCHUN]                = &WS2812FX::mode_chunchun;
+      _mode[FX_MODE_DANCING_SHADOWS]         = &WS2812FX::mode_dancing_shadows;
+      _mode[FX_MODE_PHASED]                  = &WS2812FX::mode_phased;
+      _mode[FX_MODE_PHASEDNOISE]             = &WS2812FX::mode_phased_noise;
+      _mode[FX_MODE_TWINKLEUP]               = &WS2812FX::mode_twinkleup;
+      _mode[FX_MODE_NOISEPAL]                = &WS2812FX::mode_noisepal;
+      _mode[FX_MODE_SINEWAVE]                = &WS2812FX::mode_sinewave;
       _mode[FX_MODE_PIXELS]                  = &WS2812FX::mode_pixels;
       _mode[FX_MODE_PIXELWAVE]               = &WS2812FX::mode_pixelwave;
       _mode[FX_MODE_JUGGLES]                 = &WS2812FX::mode_juggles;
@@ -471,25 +485,16 @@ class WS2812FX {
       _mode[FX_MODE_NOISEFIRE]               = &WS2812FX::mode_noisefire;
       _mode[FX_MODE_PUDDLEPEAK]              = &WS2812FX::mode_puddlepeak;
       _mode[FX_MODE_NOISEMOVE]               = &WS2812FX::mode_noisemove;
-      _mode[FX_MODE_PHASED]                  = &WS2812FX::mode_phased;
-      _mode[FX_MODE_NOISEPAL]                = &WS2812FX::mode_noisepal;
-      _mode[FX_MODE_SINEWAVE]                = &WS2812FX::mode_sinewave;
-      _mode[FX_MODE_PHASEDNOISE]             = &WS2812FX::mode_phased_noise;
-      _mode[FX_MODE_2DPLASMA]                = &WS2812FX::mode_2DPlasma;
-      _mode[FX_MODE_2D02]                    = &WS2812FX::mode_2D02;
-      _mode[FX_MODE_2D03]                    = &WS2812FX::mode_2D03;
-      _mode[FX_MODE_A0]                      = &WS2812FX::mode_A0;
-      _mode[FX_MODE_A1]                      = &WS2812FX::mode_A1;
-      _mode[FX_MODE_A2]                      = &WS2812FX::mode_A2;
-      _mode[FX_MODE_A3]                      = &WS2812FX::mode_A3;
-      _mode[FX_MODE_A4]                      = &WS2812FX::mode_A4;
-      _mode[FX_MODE_A5]                      = &WS2812FX::mode_A5;
-      _mode[FX_MODE_A6]                      = &WS2812FX::mode_A6;
-      _mode[FX_MODE_A7]                      = &WS2812FX::mode_A7;
-      _mode[FX_MODE_A8]                      = &WS2812FX::mode_A8;
-      _mode[FX_MODE_A9]                      = &WS2812FX::mode_A9;
-      
-
+      _mode[FX_MODE_2DPLASMA]                = &WS2812FX::mode_2Dplasma;
+      _mode[FX_MODE_PERLINMOVE]              = &WS2812FX::mode_perlinmove;
+      _mode[FX_MODE_RIPPLEPEAK]              = &WS2812FX::mode_ripplepeak;
+      _mode[FX_MODE_2DFIRENOISE]             = &WS2812FX::mode_2Dfirenoise;
+      _mode[FX_MODE_2DSQUAREDSWIRL]          = &WS2812FX::mode_2Dsquaredswirl;
+      _mode[FX_MODE_2DFIRE2012]              = &WS2812FX::mode_2Dfire2012;
+      _mode[FX_MODE_2DDNA]                   = &WS2812FX::mode_2Ddna;
+      _mode[FX_MODE_2DMATRIX]                = &WS2812FX::mode_2Dmatrix;
+      _mode[FX_MODE_2DMEATBALLS]             = &WS2812FX::mode_2Dmeatballs;
+      _mode[FX_FFT_TEST]                     = &WS2812FX::fft_test;
 
       _brightness = DEFAULT_BRIGHTNESS;
       currentPalette = CRGBPalette16(CRGB::Black);
@@ -505,6 +510,7 @@ class WS2812FX {
       init(bool supportWhite, uint16_t countPixels, bool skipFirst),
       service(void),
       blur(uint8_t),
+      fill(uint32_t),
       fade_out(uint8_t r),
       fade2black(uint8_t r),
       setMode(uint8_t segid, uint8_t m),
@@ -521,7 +527,7 @@ class WS2812FX {
       setPixelColor(uint16_t n, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0),
       show(void),
       setRgbwPwm(void),
-      setPixCol(uint16_t location, uint32_t index, uint8_t intensity),
+      setPixelSegment(uint8_t n),
       noise8_help(uint8_t),
       mapNoiseToLEDsUsingPalette(),
       blur1d( CRGB* leds, uint16_t numLeds, fract8 blur_amount),
@@ -529,9 +535,8 @@ class WS2812FX {
       blurRows( CRGB* leds, uint8_t width, uint8_t height, fract8 blur_amount),
       blurColumns(CRGB* leds, uint8_t width, uint8_t height, fract8 blur_amount);
 
-
     bool
-      reverseMode = false,
+      reverseMode = false,      //is the entire LED strip reversed?
       gammaCorrectBri = false,
       gammaCorrectCol = true,
       applyToAllSelected = true,
@@ -563,9 +568,10 @@ class WS2812FX {
       XY(int,int);
 
     uint32_t
+      now,
       timebase,
       color_wheel(uint8_t),
-      color_from_palette(uint16_t, bool, bool, uint8_t, uint8_t pbri = 255),
+      color_from_palette(uint16_t, bool mapping, bool wrap, uint8_t mcol, uint8_t pbri = 255),
       color_blend(uint32_t,uint32_t,uint8_t),
       gamma32(uint32_t),
       getLastShow(void),
@@ -695,6 +701,15 @@ class WS2812FX {
       mode_pacifica(void),
       mode_candle_multi(void),
       mode_solid_glitter(void),
+      mode_sunrise(void),
+      mode_flow(void),
+      mode_chunchun(void),
+      mode_dancing_shadows(void),
+      mode_phased(void),
+      mode_phased_noise(void),
+      mode_twinkleup(void),
+      mode_noisepal(void),
+      mode_sinewave(void),
       mode_pixels(void),
       mode_pixelwave(void),
       mode_juggles(void),
@@ -714,24 +729,17 @@ class WS2812FX {
       mode_noisefire(void),
       mode_puddlepeak(void),
       mode_noisemove(void),
-      mode_phased(void),
-      mode_noisepal(void),
-      mode_sinewave(void),
-      mode_phased_noise(void),
-      mode_2DPlasma(void),
-      mode_2D02(void),
-      mode_2D03(void),
-      mode_A0(void),
-      mode_A1(void),
-      mode_A2(void),
-      mode_A3(void),
-      mode_A4(void),
-      mode_A5(void),
-      mode_A6(void),
-      mode_A7(void),
-      mode_A8(void),
-      mode_A9(void);
-                  
+      mode_2Dplasma(void),
+      mode_perlinmove(void),
+      mode_ripplepeak(void),
+      mode_2Dfirenoise(void),
+      mode_2Dsquaredswirl(void),
+      mode_2Dfire2012(void),
+      mode_2Ddna(void),
+      mode_2Dmatrix(void),
+      mode_2Dmeatballs(void),
+      fft_test(void);
+
   private:
     NeoPixelWrapper *bus;
 
@@ -740,7 +748,6 @@ class WS2812FX {
     CRGBPalette16 currentPalette;
     CRGBPalette16 targetPalette;
 
-    uint32_t now;
     uint16_t _length, _lengthRaw, _virtualSegmentLength;
     uint16_t _rand16seed;
     uint8_t _brightness;
@@ -748,8 +755,6 @@ class WS2812FX {
 
     void load_gradient_palette(uint8_t);
     void handle_palette(void);
-    void fill(uint32_t);
-
 
     bool
       _useRgbw = false,
@@ -783,6 +788,9 @@ class WS2812FX {
 
     CRGB twinklefox_one_twinkle(uint32_t ms, uint8_t salt, bool cat);
     CRGB pacifica_one_layer(uint16_t i, CRGBPalette16& p, uint16_t cistart, uint16_t wavescale, uint8_t bri, uint16_t ioff);
+
+    void blendPixelColor(uint16_t n, uint32_t color, uint8_t blend);
+
     uint32_t _lastPaletteChange = 0;
     uint32_t _lastShow = 0;
 
@@ -794,18 +802,15 @@ class WS2812FX {
 
     uint8_t _segment_index = 0;
     uint8_t _segment_index_palette_last = 99;
-
     segment _segments[MAX_NUM_SEGMENTS] = { // SRAM footprint: 27 bytes per element
       // start, stop, speed, intensity, fft1, fft2, fft3, palette, mode, options, grouping, spacing, opacity (unused), color[]
       { 0, 7, DEFAULT_SPEED, DEFAULT_INTENSITY, DEFAULT_FFT1, DEFAULT_FFT2, DEFAULT_FFT3, 0, DEFAULT_MODE, NO_OPTIONS, 1, 0, 255, {DEFAULT_COLOR}}
     };
-
     segment_runtime _segment_runtimes[MAX_NUM_SEGMENTS]; // SRAM footprint: 28 bytes per element
     friend class Segment_runtime;
 
     uint16_t realPixelIndex(uint16_t i);
 };
-
 
 //10 names per line
 const char JSON_mode_names[] PROGMEM = R"=====([
@@ -819,10 +824,11 @@ const char JSON_mode_names[] PROGMEM = R"=====([
 "Noise 1","Noise 2","Noise 3","Noise 4","Colortwinkles","Lake","Meteor","Meteor Smooth","Railway","Ripple",
 "Twinklefox","Twinklecat","Halloween Eyes","Solid Pattern","Solid Pattern Tri","Spots","Spots Fade","Glitter","Candle","Fireworks Starburst",
 "Fireworks 1D","Bouncing Balls","Sinelon","Sinelon Dual","Sinelon Rainbow","Popcorn","Drip","Plasma","Percent","Ripple Rainbow",
-"Heartbeat","Pacifica","Candle Multi","Solid Glitter","* Pixels","* Pixelwave","* Juggles","* Matripix","* Gravimeter","* Plasmoid",
-"* Puddles","* Midnoise","* Noisemeter","** Freqwave","** Freqmatrix","** Spectral","** Waterfall","** Freqpixel","** Binmap","** Noisespeak",
-"* Noisefire","* Puddlepeak","** Noisemove","Phased","NoisePal", "SineWave", "Phased Noise", "2D Plasma", "2D Plasma sparks","2D_03",
-"A0","A1","A2","A3","A4","A5","A6","A7","A8","A9"
+"Heartbeat","Pacifica","Candle Multi","Solid Glitter","Sunrise","Flow","Chunchun","Dancing Shadows","Phased","Phased Noise",
+"TwinkleUp","Noise Pal","Sine","* Pixels","* Pixelwave","* Juggles","* Matripix","* Gravimeter","* Plasmoid","* Puddles",
+"* Midnoise","* Noisemeter","** Freqwave","** Freqmatrix","** Spectral","* Waterfall","** Freqpixel","** Binmap","** Noisepeak","* Noisefire",
+"* Puddlepeak","** Noisemove","2D Plasma","Perlin Move","* Ripple Peak","2D FireNoise","2D Squared Swirl","2D Fire2012","2D DNA","2D Matrix",
+"2D Meatballs","** FFT_TEST"
 ])=====";
 
 
@@ -832,7 +838,8 @@ const char JSON_palette_names[] PROGMEM = R"=====([
 "Pastel","Sunset 2","Beech","Vintage","Departure","Landscape","Beach","Sherbet","Hult","Hult 64",
 "Drywet","Jul","Grintage","Rewhi","Tertiary","Fire","Icefire","Cyane","Light Pink","Autumn",
 "Magenta","Magred","Yelmag","Yelblu","Orange & Teal","Tiamat","April Night","Orangery","C9","Sakura",
-"Aurora","Atlantica"
+"Aurora","Atlantica","Retro Clown","Candy","Toxy Reaf","Fairy Reaf","Semi Blue","Pink Candy","Red Reaf","Red & Flash",
+"YBlue","Lite Light","Pink Plasma","Blink Red","Yellow 2 Blue","Yellow 2 Red","Candy2"
 ])=====";
 
 #endif
